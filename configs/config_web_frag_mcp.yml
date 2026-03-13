@@ -14,14 +14,16 @@
 # limitations under the License.
 
 # =============================================================================
-# Test config: Deep Researcher with MCP tool integration (basic, no auth)
-# This extends config_web_frag.yml by adding an MCP tool via mcp_tool_wrapper.
+# Deep Researcher with MCP tool integration (basic, no auth)
+# This extends config_web_frag.yml by adding MCP tools via mcp_client.
 #
-# The MCP tool connects to an external MCP server (for example, a financial
-# data service) and makes it available to the deep research agents alongside
-# the existing web search, paper search, and knowledge search tools.
+# The mcp_client connects to an external MCP server, automatically discovers
+# all tools it serves, and makes them available to the deep research agents
+# alongside the existing web search and knowledge search tools.
 #
 # Prerequisites:
+#   - NVIDIA_API_KEY environment variable set
+#   - TAVILY_API_KEY environment variable set (for web search tools)
 #   - An MCP server running at the configured URL
 #   - NeMo Agent toolkit with MCP support: uv pip install "nvidia-nat[mcp]"
 # =============================================================================
@@ -96,6 +98,23 @@ llms:
     chat_template_kwargs:
       enable_thinking: true
 
+# =========================================================================
+# MCP Tools: Connect to an external MCP server
+# The mcp_client automatically discovers all tools served by the MCP server
+# and registers them as functions under the group name.
+#
+# To connect to your own MCP server:
+#   1. Replace the url with your MCP server's endpoint
+#   2. Choose the appropriate transport: streamable-http (recommended) or sse
+#   3. Add the function group name to the relevant agents' tools lists below
+# =========================================================================
+function_groups:
+  mcp_financial_tools:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: ${MCP_SERVER_URL:-http://localhost:9901/mcp}
+
 functions:
   web_search_tool:
     _type: tavily_web_search
@@ -124,26 +143,6 @@ functions:
   #   max_results: 5
   #   serper_api_key: ${SERPER_API_KEY}
 
-  # =========================================================================
-  # MCP Tool: Connect to an external MCP server
-  # This example wraps a single tool from a remote MCP server using
-  # mcp_tool_wrapper. The MCP server must be running and serving the tool
-  # at the specified URL.
-  #
-  # To add tools from your own MCP server:
-  #   1. Replace the url with your MCP server's endpoint
-  #   2. Replace mcp_tool_name with the name of the tool on the MCP server
-  #   3. Update the description so the agent knows when to use this tool
-  #   4. Choose the appropriate transport: streamable-http (recommended) or sse
-  #   5. Add the tool name to the relevant agents' tools lists below
-  # =========================================================================
-  mcp_financial_data:
-    _type: mcp_tool_wrapper
-    url: ${MCP_SERVER_URL:-http://localhost:9901/mcp}
-    transport: "streamable-http"
-    mcp_tool_name: "get_financial_data"
-    description: "Retrieves financial data and market information. Use this tool when the research query involves financial analysis, stock data, or market trends."
-
   intent_classifier:
     _type: intent_classifier
     llm: nemotron_llm_intent
@@ -151,7 +150,7 @@ functions:
       - web_search_tool
       # - paper_search_tool  # Uncomment if SERPER_API_KEY is set
       - knowledge_search
-      - mcp_financial_data
+      - mcp_financial_tools
 
   clarifier_agent:
     _type: clarifier_agent
@@ -160,7 +159,7 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
-      - mcp_financial_data
+      - mcp_financial_tools
     max_turns: 3
     enable_plan_approval: true
     log_response_max_chars: 2000
@@ -172,7 +171,7 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
-      - mcp_financial_data
+      - mcp_financial_tools
     max_llm_turns: 10
     max_tool_iterations: 5
 
@@ -186,7 +185,7 @@ functions:
       # - paper_search_tool  # Uncomment if SERPER_API_KEY is set
       - advanced_web_search_tool
       - knowledge_search
-      - mcp_financial_data
+      - mcp_financial_tools
 
 workflow:
   _type: chat_deepresearcher_agent

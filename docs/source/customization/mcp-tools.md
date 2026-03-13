@@ -16,94 +16,84 @@ Install MCP support if it is not already available:
 uv pip install "nvidia-nat[mcp]"
 ```
 
-## Adding an MCP Tool
+## Adding MCP Tools
 
-Use `mcp_tool_wrapper` to connect to an MCP server and wrap a single tool as a function. This is the simplest way to add an external tool to the deep researcher.
+Use `mcp_client` to connect to an MCP server and make its tools available to the deep researcher. The `mcp_client` automatically discovers all tools served by the MCP server and registers them as functions.
 
-### Step 1: Define the MCP tool in the `functions` section
+### Step 1: Define the MCP client in the `function_groups` section
 
-```yaml
-functions:
-  # ... existing tools (web_search_tool, paper_search_tool, and so on) ...
-
-  mcp_financial_data:
-    _type: mcp_tool_wrapper
-    url: "http://localhost:9901/mcp"           # URL of the MCP server
-    transport: "streamable-http"                # recommended transport
-    mcp_tool_name: "get_financial_data"         # name of the tool on the MCP server
-    description: "Retrieves financial data and market information. Use this tool when the research query involves financial analysis, stock data, or market trends."
-```
-
-**Transport options:**
-
-- `streamable-http` (recommended): modern HTTP-based transport for new deployments
-- `sse`: Server-Sent Events, supported for backwards compatibility
-- `stdio`: standard input/output for local process communication (use `mcp_client` instead of `mcp_tool_wrapper` for this transport)
-
-### Step 2: Add the tool to each agent's `tools` list
-
-The agents will not use the tool unless it appears in their `tools` list. Add it to the agents that should have access:
-
-```yaml
-functions:
-  intent_classifier:
-    _type: intent_classifier
-    tools:
-      - web_search_tool
-      - paper_search_tool
-      - knowledge_search
-      - mcp_financial_data
-
-  shallow_research_agent:
-    _type: shallow_research_agent
-    tools:
-      - web_search_tool
-      - knowledge_search
-      - mcp_financial_data
-
-  deep_research_agent:
-    _type: deep_research_agent
-    tools:
-      - paper_search_tool
-      - advanced_web_search_tool
-      - knowledge_search
-      - mcp_financial_data
-```
-
-## Wrapping Multiple Tools
-
-If the MCP server exposes multiple tools, define one `mcp_tool_wrapper` entry per tool:
-
-```yaml
-functions:
-  mcp_stock_quote:
-    _type: mcp_tool_wrapper
-    url: "http://localhost:9901/mcp"
-    transport: "streamable-http"
-    mcp_tool_name: "get_stock_quote"
-    description: "Returns the current stock price for a given ticker symbol."
-  mcp_earnings_report:
-    _type: mcp_tool_wrapper
-    url: "http://localhost:9901/mcp"
-    transport: "streamable-http"
-    mcp_tool_name: "get_earnings_report"
-    description: "Returns the latest earnings report for a given company."
-```
-
-## Dynamic Tool Discovery with `mcp_client`
-
-Instead of wrapping tools one by one, `mcp_client` can automatically discover and register all tools from an MCP server. This is placed under `function_groups` rather than `functions`:
+Add a `function_groups` section to your config (at the same level as `functions`):
 
 ```yaml
 function_groups:
-  financial_tools:
+  mcp_financial_tools:
     _type: mcp_client
     server:
       transport: streamable-http
       url: "http://localhost:9901/mcp"
 ```
 
-All tools served by that MCP server become available using the function group name (`financial_tools`) in the agents' `tools` lists.
+This connects to the MCP server at the given URL and registers all of its tools under the group name `mcp_financial_tools`.
+
+**Transport options:**
+
+- `streamable-http` (recommended): modern HTTP-based transport for new deployments
+- `sse`: Server-Sent Events, supported for backwards compatibility
+- `stdio`: standard input/output for local process communication
+
+### Step 2: Add the function group to each agent's `tools` list
+
+The agents will not use the MCP tools unless the function group appears in their `tools` list. Add it to the agents that should have access:
+
+```yaml
+# (inside the existing functions: section)
+  intent_classifier:
+    _type: intent_classifier
+    tools:
+      - web_search_tool
+      - knowledge_search
+      - mcp_financial_tools
+
+  clarifier_agent:
+    _type: clarifier_agent
+    tools:
+      - web_search_tool
+      - knowledge_search
+      - mcp_financial_tools
+
+  shallow_research_agent:
+    _type: shallow_research_agent
+    tools:
+      - web_search_tool
+      - knowledge_search
+      - mcp_financial_tools
+
+  deep_research_agent:
+    _type: deep_research_agent
+    tools:
+      - advanced_web_search_tool
+      - knowledge_search
+      - mcp_financial_tools
+```
+
+## Filtering and Renaming Tools
+
+By default, `mcp_client` exposes all tools from the MCP server. You can rename or override descriptions for specific tools using `tool_overrides`:
+
+```yaml
+function_groups:
+  mcp_financial_tools:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: "http://localhost:9901/mcp"
+    tool_overrides:
+      get_stock_quote:
+        alias: "stock_price"
+        description: "Returns the current stock price for a given ticker symbol."
+      get_earnings_report:
+        description: "Returns the latest quarterly earnings report for a company."
+```
 
 A complete example config is available at `configs/config_web_frag_mcp.yml`.
 
@@ -111,7 +101,7 @@ A complete example config is available at `configs/config_web_frag_mcp.yml`.
 
 MCP tools that require OAuth2 authentication (for example, corporate Jira, Confluence, or internal data platforms) are not supported in the current version of the AIQ Blueprint. The NeMo Agent toolkit provides an `mcp_oauth2` authentication provider, but it is not yet compatible with the blueprint's backend and frontend. Support for authenticated MCP tools is planned for an upcoming release.
 
-For non-authenticated MCP servers, or MCP servers that use service account credentials (set through environment variables on the server side), use the `mcp_tool_wrapper` approach described above.
+For non-authenticated MCP servers, or MCP servers that use service account credentials (set through environment variables on the server side), use the `mcp_client` approach described above.
 
 ## UI Limitations
 
@@ -119,9 +109,9 @@ MCP tools added through the configuration file will be available to the agents a
 
 ## Prompt Tuning
 
-Adding an MCP tool to the config makes it available to the agents, but the agents' prompts may not reference it. For the agents to use MCP tools effectively, you should tune the relevant prompts so that the agent knows when and how to invoke the new tool. Each customization is different: the prompt changes depend on the tool's purpose and how it fits into the research workflow.
+Adding MCP tools to the config makes them available to the agents, but the agents' prompts may not reference them. For the agents to use MCP tools effectively, you should tune the relevant prompts so that the agent knows when and how to invoke the new tools. Each customization is different: the prompt changes depend on the tool's purpose and how it fits into the research workflow.
 
-For example, if you add a financial data MCP tool, ensure the tool's `description` field clearly explains what it does and when to use it. The NeMo Agent toolkit agents use tool descriptions for routing decisions. A good description such as *"Retrieves real-time stock prices and financial statements. Use this tool for any questions involving company financials, stock performance, or market data."* helps the agent select it for the right queries.
+The NeMo Agent toolkit agents use tool descriptions for routing decisions. If the MCP server provides poor or generic tool descriptions, you can override them through the `tool_overrides` configuration to help the agent select the right tool for each query.
 
 For more on prompt customization, refer to [Prompts](./prompts.md).
 
@@ -130,11 +120,11 @@ For more on prompt customization, refer to [Prompts](./prompts.md).
 You can list the tools served by any MCP server:
 
 ```bash
-nat info mcp --url http://localhost:9901/mcp
+nat mcp client tool list --url http://localhost:9901/mcp
 ```
 
 To get details about a specific tool:
 
 ```bash
-nat info mcp --url http://localhost:9901/mcp --tool get_financial_data
+nat mcp client tool list --url http://localhost:9901/mcp --tool get_financial_data
 ```
